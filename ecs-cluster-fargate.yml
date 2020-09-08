@@ -1,238 +1,297 @@
-AWSTemplateFormatVersion: '2010-09-09'
+AWSTemplateFormatVersion: 2010-09-09
+
 Parameters:
-  VpcId:
-    Type: AWS::EC2::VPC::Id
-    Description: Select a VPC that allows instances access to the Internet.
 
-  ALBSubnetIds:
-    Type: List<AWS::EC2::Subnet::Id>
-    Description: Select two public subnets in your selected VPC(ALB).
-
-  ECSSubnetIds:
-    Type: List<AWS::EC2::Subnet::Id>
-    Description: Select two private subnets in your selected VPC(ECS Service).
-
-  MinCapacity:
+  VPC:
+    Type: 'AWS::EC2::VPC::Id'
+    Default: vpc-0f7d9abecc42b6614
+  SubnetA:
+    Type: 'AWS::EC2::Subnet::Id'
+    Default: subnet-0eb7e116e8884a151
+  SubnetB:
+    Type: 'AWS::EC2::Subnet::Id'
+    Default: subnet-09dbebe83b23fc82f
+  SubnetC:
+    Type: 'AWS::EC2::Subnet::Id'
+    Default: subnet-0bf7c9475cb324e5c
+  Cluster:
+    Type: String
+    Default: Platform-0
+  Image:
+    Type: String
+    Default: 801538319376.dkr.ecr.ap-south-1.amazonaws.com/lender-api:__GIT_REV_SHA__
+  ContainerPort:
     Type: Number
-    Default: 1
-    Description: "Minimum Capacity"
-
-  DesiredCount:
+    Default: 7700
+  LoadBalancerPort:
     Type: Number
-    Default: 1
-    Description: "Desired Capacity"
-
-  MaxCapacity:
+    Default: 80
+  HealthCheckPath:
+    Type: String
+    Default: /health
+  ContainerSecurityGroup:
+    Type: String
+    Default: sg-06a59739057a97409
+  ServiceNameA:
+    Type: String
+    Default: lender-api-rails
+  ServiceNameB:
+    Type: String
+    Default: lender-api-sidekiq
+  ServiceNameC:
+    Type: String
+    Default: lender-api-propono
+  ContainerCpuA:
     Type: Number
-    Default: 4
-    Description: "Maximum Capacity"
-
-Metadata:
-  AWS::CloudFormation::Interface:
-    ParameterGroups:
-      -
-        Label:
-          default: "Network Configuration"
-        Parameters:
-          - VpcId
-          - ALBSubnetIds
-          - ECSSubnetIds
-      -
-        Label:
-          default: "Amazon ECS Configuration"
-        Parameters:
-          - MinCapacity
-          - DesiredCount
-          - MaxCapacity
-
+    Default: 256
+  ContainerMemoryA:
+    Type: Number
+    Default: 512
+  ContainerCpuB:
+    Type: Number
+    Default: 256
+  ContainerMemoryB:
+    Type: Number
+    Default: 512
+  ContainerCpuC:
+    Type: Number
+    Default: 256
+  ContainerMemoryC:
+    Type: Number
+    Default: 512
+    
 Resources:
-
-  ECSCluster:
-    Type: AWS::ECS::Cluster
-
-  ECSSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: ECS Security Group
-      VpcId: !Ref VpcId
-
-  ECSSecurityGroupHTTPinbound:
-    Type: AWS::EC2::SecurityGroupIngress
-    Properties:
-      GroupId: !Ref ECSSecurityGroup
-      IpProtocol: tcp
-      FromPort: '80'
-      ToPort: '80'
-      CidrIp: 0.0.0.0/0
-
-  ECSSecurityGroupSSHinbound:
-    Type: AWS::EC2::SecurityGroupIngress
-    Properties:
-      GroupId: !Ref ECSSecurityGroup
-      IpProtocol: tcp
-      FromPort: '22'
-      ToPort: '22'
-      CidrIp: 0.0.0.0/0
-
-  ECSSecurityGroupALBports:
-    Type: AWS::EC2::SecurityGroupIngress
-    Properties:
-      GroupId: !Ref ECSSecurityGroup
-      IpProtocol: tcp
-      FromPort: '31000'
-      ToPort: '61000'
-      SourceSecurityGroupId: !Ref ECSSecurityGroup
-
-  CloudwatchLogsGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Join ['-', [ECSLogGroup, !Ref 'AWS::StackName']]
-      RetentionInDays: 14
-
-  ServiceSecurityGroup:
-    Type: "AWS::EC2::SecurityGroup"
-    DependsOn: ECSSecurityGroup
-    Properties:
-      GroupDescription: !Sub "fargate-Service-SG"
-      SecurityGroupIngress:
-        - SourceSecurityGroupId: !Ref ECSSecurityGroup
-          IpProtocol: -1
-      VpcId: !Ref VpcId
-
-  TaskDefinition:
+  TaskDefinitionA:
     Type: AWS::ECS::TaskDefinition
     Properties:
-      Family: !Join ['', [!Ref 'AWS::StackName', -demo-app]]
-      Cpu: 256
-      Memory: 512
-      NetworkMode: "awsvpc"
+      Family: !Ref ServiceNameA
+      NetworkMode: awsvpc
       RequiresCompatibilities:
         - FARGATE
-      ExecutionRoleArn: !Ref ECSTaskExecutionRole
+      Cpu: !Ref ContainerCpuA
+      Memory: !Ref ContainerMemoryA
+      ExecutionRoleArn: arn:aws:iam::678413560749:role/ecsTaskExecutionRole
+      TaskRoleArn: arn:aws:iam::678413560749:role/ecsTaskExecutionRole
       ContainerDefinitions:
-      - Name: simple-app
-        Cpu: 10
-        Essential: 'true'
-        Image: amd64/httpd:2.4
-        Memory: 300
-        LogConfiguration:
-          LogDriver: awslogs
-          Options:
-            awslogs-group: !Ref 'CloudwatchLogsGroup'
-            awslogs-region: !Ref 'AWS::Region'
-            awslogs-stream-prefix: demo-app
-        MountPoints:
-        - ContainerPath: /usr/local/apache2/htdocs
-          SourceVolume: my-vol
-        PortMappings:
-        - ContainerPort: 80
-      - Name: busybox
-        Cpu: 10
-        Command: ['/bin/sh -c "while true; do echo ''<html> <head> <title>Amazon ECS
-            Sample App</title> <style>body {margin-top: 40px; background-color: #333;}
-            </style> </head><body> <div style=color:white;text-align:center> <h1>Amazon
-            ECS Sample App</h1> <h2>Congratulations!</h2> <p>Your application is now
-            running on a container in Amazon ECS v3.</p>'' > top; /bin/date > date ;
-            echo ''</div></body></html>'' > bottom; cat top date bottom > /usr/local/apache2/htdocs/index.html
-            ; sleep 1; done"']
-        EntryPoint: [sh, -c]
-        Essential: false
-        Image: busybox
-        Memory: 200
-        LogConfiguration:
-          LogDriver: awslogs
-          Options:
-            awslogs-group: !Ref 'CloudwatchLogsGroup'
-            awslogs-region: !Ref 'AWS::Region'
-            awslogs-stream-prefix: demo-app
-        VolumesFrom:
-        - SourceContainer: simple-app
-      Volumes:
-      - Name: my-vol
-
-
-  ECSALB:
-    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
-    Properties:
-      Name: ECSALB
-      Scheme: internet-facing
-      Subnets: !Ref ALBSubnetIds
-      SecurityGroups: [!Ref ECSSecurityGroup]
-
-  ALBListener:
-    Type: AWS::ElasticLoadBalancingV2::Listener
-    Properties:
-      DefaultActions:
-      - Type: forward
-        TargetGroupArn: !Ref 'ECSTargetGroup'
-      LoadBalancerArn: !Ref 'ECSALB'
-      Port: '80'
-      Protocol: HTTP
-
-  ECSALBListenerRule:
-    Type: AWS::ElasticLoadBalancingV2::ListenerRule
-    DependsOn: ALBListener
-    Properties:
-      Actions:
-      - Type: forward
-        TargetGroupArn: !Ref 'ECSTargetGroup'
-      Conditions:
-      - Field: path-pattern
-        Values: [/]
-      ListenerArn: !Ref 'ALBListener'
-      Priority: 1
-
-  ECSTargetGroup:
-    Type: AWS::ElasticLoadBalancingV2::TargetGroup
-    DependsOn: ECSALB
-    Properties:
-      HealthCheckIntervalSeconds: 10
-      HealthCheckPath: /
-      HealthCheckProtocol: HTTP
-      HealthCheckTimeoutSeconds: 5
-      HealthyThresholdCount: 2
-      Name: ECSTargetGroup
-      Port: 80
-      Protocol: HTTP
-      UnhealthyThresholdCount: 2
-      TargetType: ip
-      VpcId: !Ref 'VpcId'
-
-  Service:
+        - Name: !Ref ServiceNameA
+          Image: !Ref Image
+          Essential: true
+          Cpu: !Ref ContainerCpuA
+          Memory: !Ref ContainerMemoryA
+          MemoryReservation: 256
+          Environment:
+            - Name: DEVOPS_BUCKET
+              Value: arthimpact-devops-mumbai
+            - Name: Env
+              Value: staging
+            - Name: SUBPROC
+              Value: rails              
+          PortMappings:
+            - ContainerPort: !Ref ContainerPort
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: !Ref AWS::Region
+              awslogs-group: !Ref LogGroupA
+              awslogs-stream-prefix: ecs
+  # A role needed by ECS.
+  ServiceA:
     Type: AWS::ECS::Service
-    DependsOn: ALBListener
     Properties:
-      Cluster: !Ref ECSCluster
+      Cluster: !Ref Cluster
+      ServiceName: !Ref ServiceNameA
+      TaskDefinition: !Ref TaskDefinitionA
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
+      DesiredCount: 1
+      # This may need to be adjusted if the container takes a while to start up.
+      HealthCheckGracePeriodSeconds: 60
       LaunchType: FARGATE
-      DesiredCount: !Ref DesiredCount
       NetworkConfiguration:
         AwsvpcConfiguration:
-          SecurityGroups:
-            - !Ref ServiceSecurityGroup
+          # change to DISABLED if you're using private subnets that have access to a NAT gateway
+          AssignPublicIp: ENABLED
           Subnets:
-            - !Select [0, !Ref ECSSubnetIds]
-            - !Select [1, !Ref ECSSubnetIds]
+            - !Ref SubnetA
+            - !Ref SubnetB
+            - !Ref SubnetC
+          SecurityGroups:
+            - !Ref ContainerSecurityGroup
       LoadBalancers:
-      - ContainerName: simple-app
-        ContainerPort: '80'
-        TargetGroupArn: !Ref ECSTargetGroup
-      TaskDefinition: !Ref TaskDefinition
+        - ContainerName: !Ref ServiceNameA
+          ContainerPort: !Ref ContainerPort
+          TargetGroupArn: !Ref TargetGroupA
+  TargetGroupA:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath: !Ref HealthCheckPath
+      HealthCheckTimeoutSeconds: 15
+      UnhealthyThresholdCount: 9
+      HealthyThresholdCount: 2
+      TargetType: ip
+      Name: !Sub ${ServiceNameA}-alb-tg
+      VpcId: !Ref VPC
+      Port: 80
+      Protocol: HTTP
+  ListenerRule1:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+        Actions:
+          - Type: redirect
+            RedirectConfig:
+                Host: "#{host}"
+                Path: "/#{path}"
+                Port: 443
+                Protocol: "HTTPS"
+                Query: "#{query}"
+                StatusCode: HTTP_301
+        Conditions:
+          - Field: host-header
+            Values:
+              - lender-api.staging.happy-tech.in
+        ListenerArn: arn:aws:elasticloadbalancing:ap-south-1:678413560749:listener/app/Happyness-LB/c371746554b22347/3bb6f4267fd9626d
+        Priority: 609
+  ListenerRule2:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+        Actions:
+          - Type: forward
+            ForwardConfig:
+              TargetGroups:
+                - TargetGroupArn: !Ref TargetGroupA
+                  Weight: 1
+        Conditions:
+          - Field: host-header
+            Values:
+              - lender-api.staging.happy-tech.in
+        ListenerArn: arn:aws:elasticloadbalancing:ap-south-1:678413560749:listener/app/Happyness-LB/c371746554b22347/61c33a27e8084f3b
+        Priority: 610
+        
+  TaskDefinitionB:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Ref ServiceNameB
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: !Ref ContainerCpuB
+      Memory: !Ref ContainerMemoryB
+      ExecutionRoleArn: arn:aws:iam::678413560749:role/ecsTaskExecutionRole
+      TaskRoleArn: arn:aws:iam::678413560749:role/ecsTaskExecutionRole
+      ContainerDefinitions:
+        - Name: !Ref ServiceNameB
+          Image: !Ref Image
+          Essential: true
+          Cpu: !Ref ContainerCpuB
+          Memory: !Ref ContainerMemoryB
+          MemoryReservation: 256
+          Environment:
+            - Name: DEVOPS_BUCKET
+              Value: arthimpact-devops-mumbai
+            - Name: Env
+              Value: staging
+            - Name: SUBPROC
+              Value: sidekiq              
+          PortMappings:
+            - ContainerPort: !Ref ContainerPort
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: !Ref AWS::Region
+              awslogs-group: !Ref LogGroupB
+              awslogs-stream-prefix: ecs
+  # A role needed by ECS.
+  ServiceB:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !Ref Cluster
+      ServiceName: !Ref ServiceNameB
+      TaskDefinition: !Ref TaskDefinitionB
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
+      DesiredCount: 1
+      # This may need to be adjusted if the container takes a while to start up.
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          # change to DISABLED if you're using private subnets that have access to a NAT gateway
+          AssignPublicIp: ENABLED
+          Subnets:
+            - !Ref SubnetA
+            - !Ref SubnetB
+            - !Ref SubnetC
+          SecurityGroups:
+            - !Ref ContainerSecurityGroup
+
+  TaskDefinitionC:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Ref ServiceNameC
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: !Ref ContainerCpuC
+      Memory: !Ref ContainerMemoryC
+      ExecutionRoleArn: arn:aws:iam::678413560749:role/ecsTaskExecutionRole
+      TaskRoleArn: arn:aws:iam::678413560749:role/ecsTaskExecutionRole
+      ContainerDefinitions:
+        - Name: !Ref ServiceNameC
+          Image: !Ref Image
+          Essential: true
+          Cpu: !Ref ContainerCpuC
+          Memory: !Ref ContainerMemoryC
+          MemoryReservation: 256
+          Environment:
+            - Name: DEVOPS_BUCKET
+              Value: arthimpact-devops-mumbai
+            - Name: Env
+              Value: staging
+            - Name: SUBPROC
+              Value: propono              
+          PortMappings:
+            - ContainerPort: !Ref ContainerPort
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: !Ref AWS::Region
+              awslogs-group: !Ref LogGroupC
+              awslogs-stream-prefix: ecs
+  # A role needed by ECS.
+  ServiceC:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !Ref Cluster
+      ServiceName: !Ref ServiceNameC
+      TaskDefinition: !Ref TaskDefinitionC
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
+      DesiredCount: 1
+      # This may need to be adjusted if the container takes a while to start up.
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          # change to DISABLED if you're using private subnets that have access to a NAT gateway
+          AssignPublicIp: ENABLED
+          Subnets:
+            - !Ref SubnetA
+            - !Ref SubnetB
+            - !Ref SubnetC
+          SecurityGroups:
+            - !Ref ContainerSecurityGroup
 
   ServiceAutoScalingTarget:
       Type: AWS::ApplicationAutoScaling::ScalableTarget
       Properties:
-        MaxCapacity: !Ref MaxCapacity
-        MinCapacity: !Ref MinCapacity
-        ResourceId:
-          Fn::Join:
-          - "/"
-          - - service
-            - !Ref ECSCluster
-            - !GetAtt [Service, Name]
+        MaxCapacity: '6'
+        MinCapacity: '1'
+        ResourceId: !Join ["/", [service, !Ref "Cluster", !GetAtt [ServiceA, Name]]]
         RoleARN: !GetAtt ServiceAutoScaleRole.Arn
         ScalableDimension: ecs:service:DesiredCount
         ServiceNamespace: ecs
-
 
   ServiceAutoScaleRole:
     Type: AWS::IAM::Role
@@ -268,40 +327,15 @@ Resources:
           PredefinedMetricSpecification:
             PredefinedMetricType: ECSServiceAverageCPUUtilization
 
-  ECSTaskExecutionRole:
-    Type: AWS::IAM::Role
+  LogGroupA:
+    Type: AWS::Logs::LogGroup
     Properties:
-      AssumeRolePolicyDocument:
-        Statement:
-        - Effect: Allow
-          Principal:
-            Service: [ecs-tasks.amazonaws.com]
-          Action: ['sts:AssumeRole']
-      Path: /
-      Policies:
-        - PolicyName: AmazonECSTaskExecutionRolePolicy
-          PolicyDocument:
-            Statement:
-            - Effect: Allow
-              Action:
-                # Allow the ECS Tasks to download images from ECR
-                - 'ecr:GetAuthorizationToken'
-                - 'ecr:BatchCheckLayerAvailability'
-                - 'ecr:GetDownloadUrlForLayer'
-                - 'ecr:BatchGetImage'
-
-                # Allow the ECS tasks to upload logs to CloudWatch
-                - 'logs:CreateLogStream'
-                - 'logs:PutLogEvents'
-              Resource: '*'
-
-Outputs:
-  ECSService:
-    Value: !Ref Service
-  ECSCluster:
-    Value: !Ref ECSCluster
-  ECSALB:
-    Description: Your ALB DNS URL
-    Value: !Join ['', [!GetAtt [ECSALB, DNSName]]]
-  TaskDef:
-    Value: !Ref TaskDefinition
+      LogGroupName: !Join ['', [/ecs/, !Ref ServiceNameA]]
+  LogGroupB:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Join ['', [/ecs/, !Ref ServiceNameB]]
+  LogGroupC:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Join ['', [/ecs/, !Ref ServiceNameC]]
